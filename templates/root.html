@@ -92,6 +92,7 @@ function sendColorUpdate(tx, ty, color_idx) {
 	// To be implemented
 	console.log(tx, ty, color_idx);
 	let obj = { x: tx, y: ty, color: color_idx };
+	/*
 	fetch(HOST + "/api/place", {
 		method: "POST",
 		headers: {"Content-type": "application/json"},
@@ -99,6 +100,13 @@ function sendColorUpdate(tx, ty, color_idx) {
 	})
 		.then(resp => { if(resp.status != 200) { resp.text().then(text => { throw new Error(resp.status + ":\n" + text) }); }})
 		.catch(alert);
+	*/
+	ws.send(JSON.stringify({
+		act: "place",
+		x: tx,
+		y: ty,
+		color: color_idx
+	}));
 	putColor(tx, ty, color_idx);  // Force local update
 }
 

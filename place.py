@@ -1,12 +1,8 @@
 from flask import Flask, request, g, render_template, make_response
 from flask.json import jsonify
 from flask_sockets import Sockets
-import mmap, math, json, sys, socket, struct
-
-WIDTH = 500
-HEIGHT = 500
-BYTES_PER_PIXEL = 0.5
-BITS_PER_PIXEL = int(8 * BYTES_PER_PIXEL)
+import math, json, sys, socket, struct
+import bitmap
 
 def aton(h):
 	return struct.unpack('>I', socket.inet_aton(h))[0]
@@ -24,25 +20,6 @@ def check_priv():
 		resp.status_code = 403
 		return resp
 
-BITMAP_FILE = open('/var/www/place/bitmap', 'r+b')
-BITMAP_FILE.seek(0, 2)
-BITMAP_SIZE = BITMAP_FILE.tell()
-BITMAP_FILE.seek(0, 0)
-BITMAP = mmap.mmap(
-	BITMAP_FILE.fileno(),
-	BITMAP_SIZE,
-)
-
-def place_pixel(x, y, col):
-	col &= ((1 << BITS_PER_PIXEL) - 1)
-	x = min((WIDTH, max((0, x))))
-	y = min((HEIGHT, max((0, y))))
-	idx = (y * WIDTH + x) * BYTES_PER_PIXEL
-	byte_idx = int(idx)
-	bit_idx = int((idx - byte_idx) * 8)
-	mask = ((1 << BITS_PER_PIXEL) - 1) << bit_idx
-	BITMAP[byte_idx] = chr(((0xff ^ mask) & ord(BITMAP[byte_idx])) | (col << bit_idx))
-	# TODO: Send change to clients
 
 app = Flask('place')
 
@@ -51,19 +28,19 @@ so.connect(('localhost', 42960))
 
 @app.route('/bitmap')
 def view_bitmap():
-	response = make_response(BITMAP[:])
+	response = make_response(bitmap.BITMAP[:])
 	response.headers['Content-type'] = 'application/octet-stream'
 	return response
 
 @app.route('/bitmap/width')
 def view_width():
-	response = make_response(str(WIDTH))
+	response = make_response(str(bitmap.WIDTH))
 	response.headers['Content-type'] = 'text/plain'
 	return response
 
 @app.route('/bitmap/height')
 def view_height():
-	response = make_response(str(HEIGHT))
+	response = make_response(str(bitmap.HEIGHT))
 	response.headers['Content-type'] = 'text/plain'
 	return response
 
@@ -76,7 +53,7 @@ def view_place():
 		if request.headers['Content-type'] == 'application/json':
 			req = json.loads(request.data)
 			try:
-				place_pixel(req['x'], req['y'], req['color'])
+				bitmap.place_pixel(req['x'], req['y'], req['color'])
 			except Exception:
 				import traceback
 				response = make_response(traceback.format_exc())
