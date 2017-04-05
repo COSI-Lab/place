@@ -1,0 +1,8 @@
+[Unit]
+Description=Place WebSocket server
+
+[Service]
+ExecStart=/usr/bin/python2 /var/www/place/placews.py
+
+[Install]
+WantedBy=multi-user.target

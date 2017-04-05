@@ -1,0 +1,388 @@
+<html>
+	<head>
+		<title>COSI Place</title>
+		<meta charset="utf8"/>
+
+		<script type="text/javascript">
+/* Configuration section */
+
+var WIDTH = 500;
+var HEIGHT = 500;
+var BITS_PER_PIXEL = 4;
+var PALETTE = [
+	"#fff",
+	"#aaa",
+	"#555",
+	"#000",
+	"#f00",
+	"#f70",
+	"#ff0",
+	"#7f0",
+	"#0f0",
+	"#0f7",
+	"#0ff",
+	"#07f",
+	"#00f",
+	"#70f",
+	"#f0f",
+	"#f07",
+];
+var INIT_SCALE = 4;   // Pixels / texel at initial zoom
+var ZOOM_SCALE = 32;  // Pixels / texel when zoomed in
+
+var DRAG_DIST = 5;
+
+var HOST = location.protocol + "//" + location.hostname;
+var WS = "ws://" + location.hostname + ":8081/ws";
+var ws;
+
+async function preConfig() {
+	return await Promise.all([
+		fetch(HOST + "/bitmap/width").then(body => body.text()).then(text => WIDTH = parseInt(text)),
+		fetch(HOST + "/bitmap/height").then(body => body.text()).then(text => HEIGHT = parseInt(text))
+	]);
+}
+
+function postConfig() {
+	fetch(HOST + "/bitmap")
+		.then(body => body.arrayBuffer())
+		.then(loadCanvas);
+	ws = new WebSocket(WS);
+	ws.onopen = function(ev) {
+		console.log('Connection established');
+	}
+	ws.onerror = function(ev) {
+		console.log('WS Error:', ev);
+	}
+	ws.onclose = function(ev) {
+		console.log('WS Close:', ev);
+	}
+	ws.onmessage = function(ev) {
+		var obj = JSON.parse(ev.data);
+		console.log(obj);
+		if(obj.ev == "place") {
+			putColor(obj.x, obj.y, obj.color);
+		}
+	}
+}
+
+function loadCanvas(ab) {
+	var incoming = new Uint8ClampedArray(ab);
+	var imdata = ctx.createImageData(WIDTH, HEIGHT);
+	var imidx = 0;
+	var inbidx = 0;
+	for(var y = 0; y < HEIGHT; y++) {
+		for(var x = 0; x < WIDTH; x++) {
+			inbidx = (y * WIDTH + x) * BITS_PER_PIXEL;
+			var byte_idx = Math.floor(inbidx / 8);
+			var bit_idx = Math.round((inbidx - byte_idx * 8));
+			var byte = incoming[byte_idx];
+			var col = (byte >>> bit_idx) & ((1 << BITS_PER_PIXEL) - 1);
+			var cmps = colorToBytes(PALETTE[col])
+			for(var i = 0; i < 3; i++)
+				imdata.data[imidx + i] = cmps[i];
+			imdata.data[imidx + 3] = 255;
+			imidx += 4;
+		}
+	}
+	ctx.putImageData(imdata, 0, 0);
+}
+
+function sendColorUpdate(tx, ty, color_idx) {
+	// To be implemented
+	console.log(tx, ty, color_idx);
+	let obj = { x: tx, y: ty, color: color_idx };
+	fetch(HOST + "/api/place", {
+		method: "POST",
+		headers: {"Content-type": "application/json"},
+		body: JSON.stringify(obj)
+	})
+		.then(resp => { if(resp.status != 200) { resp.text().then(text => { throw new Error(resp.status + ":\n" + text) }); }})
+		.catch(alert);
+	putColor(tx, ty, color_idx);  // Force local update
+}
+
+// To be called whenever a pixel must be placed
+function putColor(tx, ty, color_idx) {
+	ctx.fillStyle = PALETTE[color_idx];
+	ctx.fillRect(tx, ty, 1, 1);
+}
+
+/* End configuration */
+
+var SQRT_2 = Math.sqrt(2);
+
+var canvas, controls, ctx, palette_elems;
+var init_x, init_y;
+var zoomed = false, dragging = false;
+var cur_color = null;
+var drag_elem = null;
+var drag_rot = 0.0;
+var canv_width = WIDTH, canv_height = HEIGHT;
+var canv_top = 0, canv_left = 0;
+var target_top = 0, target_left = 0;
+var drag_top, drag_left;
+
+function lerp(a, b, u) {
+	return (1 - u) * a + u * b;
+}
+
+function invertColor(hc) {
+	// FIXME: Only works for 3-component hex right now
+	if(hc.charAt(0) == '#') {
+		if(hc.length == 4) {
+			var cc = '#';
+			for(var i = 1; i < 4; i++) {
+				cc += (15 - parseInt(hc.charAt(i), 16)).toString(16);
+			}
+			return cc;
+		}
+	}
+}
+
+function colorToBytes(hc) {
+	// FIXME: As above
+	if(hc.charAt(0) == '#') {
+		if(hc.length == 4) {
+			var cmps = [];
+			for(var i = 1; i < 4; i++) {
+				 cmps.push(17 * parseInt(hc.charAt(i), 16));
+			}
+			return cmps;
+		}
+	}
+}
+
+function currentScale() {
+	return canvas.offsetWidth / canvas.width;
+}
+
+function desiredScale() {
+	return zoomed? ZOOM_SCALE : INIT_SCALE;
+}
+
+function animFrame() {
+	updateDragElem();
+	updateCanvasProps();
+	window.requestAnimationFrame(animFrame);
+}
+
+function updateDragElem() {
+	if(drag_elem != null) {
+		drag_elem.style.width = currentScale() + "px";
+		drag_elem.style.height = currentScale() + "px";
+		drag_rot = lerp(drag_rot, 0.0, 0.1);
+		drag_elem.style.transform = "rotate(" + drag_rot + "rad)";
+	}
+}
+
+function updateCanvasProps() {
+	var target_width, target_height;
+	target_width = desiredScale() * WIDTH;
+	target_height = desiredScale() * HEIGHT;
+
+	if(Math.abs(canv_width - target_width) >= 1 || Math.abs(canv_height - target_height) >= 1) {
+		canv_width = lerp(canv_width, target_width, 0.5);
+		canv_height = lerp(canv_height, target_height, 0.5);
+		canvas.style.width = canv_width + "px";
+		canvas.style.height = canv_height + "px";
+	}
+
+	if(Math.abs(canv_left - target_left) >= 1 || Math.abs(canv_top - target_top) >= 1) {
+		canv_left = lerp(canv_left, target_left, 0.5);
+		canv_top = lerp(canv_top, target_top, 0.5);
+		canvas.style.left = -canv_left + "px";
+		canvas.style.top = -canv_top + "px";
+	}
+}
+
+function placeJump() {
+	canv_left = target_left;
+	canv_top = target_top;
+	canvas.style.left = -canv_left + "px";
+	canvas.style.top = -canv_top + "px";
+}
+
+function placeCornerTo(x, y) {
+	target_left = desiredScale() * x;
+	target_top = desiredScale() * y;
+}
+
+function placeCenterTo(x, y) {
+	var disp_width = window.innerWidth;
+	var disp_height = window.innerHeight;
+	target_left = desiredScale() * x - disp_width / 2;
+	target_top = desiredScale() *y - disp_height / 2;
+}
+
+function placeEnter(ev) {
+	if(cur_color != null && drag_elem == null) {
+		drag_elem = document.createElement("div");
+		drag_elem.classList.add("drag");
+		drag_elem.style.backgroundColor = PALETTE[cur_color];
+		drag_elem.style.border = "2px solid " + invertColor(PALETTE[cur_color]);
+		drag_elem.style.left = Math.floor(ev.pageX - currentScale() / 2) + "px";
+		drag_elem.style.top = (ev.pageY + currentScale() * (SQRT_2 - 1)) + "px";
+		document.body.appendChild(drag_elem);
+	}
+}
+
+function placeLeave(ev) {
+	if(drag_elem != null) {
+		document.body.removeChild(drag_elem);
+		drag_elem = null;
+	}
+}
+
+function placeMove(ev) {
+	if(drag_elem != null) {
+		drag_elem.style.left = Math.floor(ev.pageX - currentScale() / 2) + "px";
+		drag_elem.style.top = (ev.pageY + currentScale() * (SQRT_2 - 1)) + "px";
+		drag_rot = lerp(drag_rot, Math.atan(ev.movementX), 0.1);
+	}
+	if(dragging) {
+		target_left -= ev.movementX;
+		target_top -= ev.movementY;
+		placeJump();
+	}
+}
+
+function placeClick(ev) {
+	if(Math.abs(init_x - ev.pageX) + Math.abs(init_y - ev.pageY) > DRAG_DIST) return;
+	if(cur_color != null && zoomed) {
+		sendColorUpdate(
+			Math.floor(ev.offsetX / currentScale()),
+			Math.floor(ev.offsetY / currentScale()),
+			cur_color
+		);
+		setCurrentColor(null);
+	} else {
+		zoomed = !zoomed;
+		placeCenterTo(ev.offsetX / currentScale(), ev.offsetY / currentScale());
+	}
+}
+
+function placeMouseDown(ev) {
+	dragging = true;
+	init_x = ev.pageX;
+	init_y = ev.pageY;
+	placeJump();
+	drag_top = target_top;
+	drag_left = target_left;
+}
+
+function placeMouseUp(ev) {
+	dragging = false;
+}
+
+function setCurrentColor(idx) {
+	if(cur_color != null) {
+		palette_elems[cur_color].style.border = "";
+	}
+	if(idx == null) {
+		cur_color = null;
+		if(drag_elem != null) {
+			document.body.removeChild(drag_elem);
+			drag_elem = null;
+		}
+		return;
+	}
+	if(cur_color == idx) {
+		cur_color = null;
+	} else {
+		cur_color = idx;
+		if(drag_elem != null) {
+			drag_elem.style.backgroundColor = PALETTE[idx];
+		}
+		palette_elems[idx].style.border = "2px solid " + invertColor(PALETTE[idx]);
+	}
+}
+
+function paletteClick(ev) {
+	var idx = parseInt(this.dataset.colorIdx);
+	setCurrentColor(idx);
+}
+
+function makeRandomNoise() {
+	for(var x = 0; x < WIDTH; x++) {
+		for(var y = 0; y < WIDTH; y++) {
+			putColor(x, y, Math.floor(Math.random() * PALETTE.length));
+		}
+	}
+}
+
+function init() {
+	preConfig();
+
+	canvas = document.querySelector("#place");
+	canvas.width = WIDTH;
+	canvas.height = HEIGHT;
+	canvas.addEventListener("mouseenter", placeEnter);
+	canvas.addEventListener("mouseleave", placeLeave);
+	canvas.addEventListener("mousemove", placeMove);
+	canvas.addEventListener("click", placeClick);
+	canvas.addEventListener("mousedown", placeMouseDown);
+	canvas.addEventListener("mouseup", placeMouseUp);
+	
+	ctx = canvas.getContext("2d");
+
+	controls = document.querySelector("#controls");
+	palette_elems = new Array(PALETTE.length);
+	for(var i = 0; i < PALETTE.length; i++) {
+		var color = PALETTE[i];
+		var elem = document.createElement("div");
+		elem.addEventListener("click", paletteClick);
+		elem.dataset.colorIdx = i;
+		elem.style.backgroundColor = color;
+		controls.appendChild(elem);
+		palette_elems[i] = elem;
+	}
+
+	// Debugging
+	// makeRandomNoise();
+	postConfig();
+
+	animFrame();
+}
+
+document.addEventListener("DOMContentLoaded", init);
+		</script>
+
+		<style type="text/css">
+#place {
+	position: fixed;
+	image-rendering: pixelated;
+	image-rendering: -moz-crisp-edges;
+}
+
+#controls {
+	position: fixed;
+	left: 0;
+	bottom: 0;
+	width: 100%;
+	display: flex;
+	justify-content: center;
+	background-color: #333;
+
+}
+
+#controls div {
+	margin: 10px;
+	width: 25px;
+	height: 25px;
+	border: 2px solid rgba(0, 0, 0, 0);
+}
+
+.drag {
+	position: fixed;
+	display: block;
+}
+		</style>
+	</head>
+
+	<body>
+		<canvas id="place"></canvas>
+		<div id="controls">
+		</div>
+	</body>
+</html>
