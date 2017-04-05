@@ -323,6 +323,9 @@ function init() {
 	canvas.addEventListener("click", placeClick);
 	canvas.addEventListener("mousedown", placeMouseDown);
 	canvas.addEventListener("mouseup", placeMouseUp);
+
+	placeCenterTo(Math.random() * WIDTH, Math.random() * HEIGHT);
+	placeJump();
 	
 	ctx = canvas.getContext("2d");
 
@@ -349,6 +352,10 @@ document.addEventListener("DOMContentLoaded", init);
 		</script>
 
 		<style type="text/css">
+body {
+	background-color: #aaa;
+}
+
 #place {
 	position: fixed;
 	image-rendering: pixelated;
