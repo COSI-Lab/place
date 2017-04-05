@@ -1,0 +1,16 @@
+A small r/place clone using Flask and WebSockets.
+
+You'll need a Python2 installation with the following modules:
+
+- flask
+- geventwebsocket
+
+Afterward, make sure the `bitmap` file exists and is correctly referred to
+under the `BITMAP_FILE` line in `place.py`. You can use `make_bitmap.py` to
+make this file in the current working directory, or to clear an existing file.
+
+Then, start `placews.py` somewhere (a systemd unit is provided) and run
+place.py's `app` object in your favorite WSGI-compatible server.
+
+Our live demonstration is running at http://place.cslabs.clarkson.edu/ . Please
+report issues to this repository.
