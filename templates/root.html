@@ -9,28 +9,50 @@
 var WIDTH = 500;
 var HEIGHT = 500;
 var BITS_PER_PIXEL = 4;
-var PALETTE = [
-	"#fff",
-	"#aaa",
-	"#555",
-	"#000",
-	"#f00",
-	"#f70",
-	"#ff0",
-	"#7f0",
-	"#0f0",
-	"#0f7",
-	"#0ff",
-	"#07f",
-	"#00f",
-	"#70f",
-	"#f0f",
-	"#f07",
-];
+var PALETTES = {
+	"old": [
+		"#fff",
+		"#aaa",
+		"#555",
+		"#000",
+		"#f00",
+		"#f70",
+		"#ff0",
+		"#7f0",
+		"#0f0",
+		"#0f7",
+		"#0ff",
+		"#07f",
+		"#00f",
+		"#70f",
+		"#f0f",
+		"#f07",
+	],
+	"default": [
+		"#fff", // white
+		"#eee", // light gray
+		"#888", // gray
+		"#222", // black
+		"#fad", // pink
+		"#e00", // red
+		"#e90", // orange
+		"#a64", // brown
+		"#ed0", // yellow
+		"#9e4", // green
+		"#0b0", // also green
+		"#0dd", // lightest blue
+		"#08c", // light blue
+		"#00e", // blue
+		"#c6e", // lilac
+		"#808", // purple
+	]
+};
+var PALETTE = PALETTES["default"];
 var INIT_SCALE = 4;   // Pixels / texel at initial zoom
 var ZOOM_SCALE = 32;  // Pixels / texel when zoomed in
 
 var DRAG_DIST = 5;
+var RELEASE_AFTER_CLICK = false;
 
 var HOST = location.protocol + "//" + location.hostname;
 var WS = "ws://" + location.hostname + ":8081/ws";
@@ -44,9 +66,8 @@ async function preConfig() {
 }
 
 function postConfig() {
-	fetch(HOST + "/bitmap")
-		.then(body => body.arrayBuffer())
-		.then(loadCanvas);
+	updateCanvas();
+
 	ws = new WebSocket(WS);
 	ws.onopen = function(ev) {
 		console.log('Connection established');
@@ -64,6 +85,17 @@ function postConfig() {
 			putColor(obj.x, obj.y, obj.color);
 		}
 	}
+
+	palette_select.value = "default";
+	var ev = new Event("change");
+	palette_select.dispatchEvent(ev);
+	palette_select.disabled = true;
+}
+
+function updateCanvas() {
+	fetch(HOST + "/bitmap")
+		.then(body => body.arrayBuffer())
+		.then(loadCanvas);
 }
 
 function loadCanvas(ab) {
@@ -89,7 +121,6 @@ function loadCanvas(ab) {
 }
 
 function sendColorUpdate(tx, ty, color_idx) {
-	// To be implemented
 	console.log(tx, ty, color_idx);
 	let obj = { x: tx, y: ty, color: color_idx };
 	/*
@@ -120,7 +151,7 @@ function putColor(tx, ty, color_idx) {
 
 var SQRT_2 = Math.sqrt(2);
 
-var canvas, controls, ctx, palette_elems;
+var canvas, controls, ctx, palette_elems, palette_select;
 var init_x, init_y;
 var zoomed = false, dragging = false;
 var cur_color = null;
@@ -236,6 +267,7 @@ function placeEnter(ev) {
 }
 
 function placeLeave(ev) {
+	dragging = false;
 	if(drag_elem != null) {
 		document.body.removeChild(drag_elem);
 		drag_elem = null;
@@ -263,10 +295,26 @@ function placeClick(ev) {
 			Math.floor(ev.offsetY / currentScale()),
 			cur_color
 		);
-		setCurrentColor(null);
+		if(RELEASE_AFTER_CLICK) {
+			setCurrentColor(null);
+		}
 	} else {
 		zoomed = !zoomed;
 		placeCenterTo(ev.offsetX / currentScale(), ev.offsetY / currentScale());
+	}
+}
+
+function placeRightClick(ev) {
+	zoomed = !zoomed;
+	placeCenterTo(ev.offsetX / currentScale(), ev.offsetY / currentScale());
+	ev.preventDefault();
+	return false;
+}
+
+function placeKey(ev) {
+	console.log(ev);
+	if(ev.key == "Escape") {
+		setCurrentColor(null);
 	}
 }
 
@@ -319,6 +367,13 @@ function makeRandomNoise() {
 	}
 }
 
+function updatePalette() {
+	for(var i = 0; i < palette_elems.length; i++) {
+		var elem = palette_elems[i];
+		elem.style.backgroundColor = PALETTE[i];
+	}
+}
+
 function init() {
 	preConfig();
 
@@ -331,6 +386,8 @@ function init() {
 	canvas.addEventListener("click", placeClick);
 	canvas.addEventListener("mousedown", placeMouseDown);
 	canvas.addEventListener("mouseup", placeMouseUp);
+	canvas.addEventListener("contextmenu", placeRightClick);
+	document.body.addEventListener("keydown", placeKey);
 
 	placeCenterTo(Math.random() * WIDTH, Math.random() * HEIGHT);
 	placeJump();
@@ -348,6 +405,19 @@ function init() {
 		controls.appendChild(elem);
 		palette_elems[i] = elem;
 	}
+
+	palette_select = document.querySelector("#palette");
+	for(var pal_name in PALETTES) {
+		var opt = document.createElement("option");
+		opt.setAttribute("value", pal_name);
+		opt.textContent = pal_name;
+		palette_select.appendChild(opt);
+	}
+	palette_select.addEventListener("change", function(ev) {
+		PALETTE = PALETTES[palette_select.value];
+		updatePalette();
+		updateCanvas();
+	});
 
 	// Debugging
 	// makeRandomNoise();
@@ -388,6 +458,11 @@ body {
 	border: 2px solid rgba(0, 0, 0, 0);
 }
 
+#controls #select {
+	background-color: #444;
+	color: #aaa;
+}
+
 .drag {
 	position: fixed;
 	display: block;
@@ -398,6 +473,7 @@ body {
 	<body>
 		<canvas id="place"></canvas>
 		<div id="controls">
+			<select id="palette"></select>
 		</div>
 	</body>
 </html>
