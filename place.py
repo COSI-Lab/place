@@ -1,6 +1,5 @@
 from flask import Flask, request, g, render_template, make_response
 from flask.json import jsonify
-from flask_sockets import Sockets
 import math, json, sys, socket, struct
 import bitmap
 
