@@ -6,7 +6,7 @@ HEIGHT = 500
 BYTES_PER_PIXEL = 0.5
 BITS_PER_PIXEL = int(8 * BYTES_PER_PIXEL)
 
-BITMAP_FILE = open('/var/www/place/bitmap', 'r+b')
+BITMAP_FILE = open('/var/tmp/bitmap', 'r+b')
 BITMAP_FILE.seek(0, 2)
 BITMAP_SIZE = BITMAP_FILE.tell()
 BITMAP_FILE.seek(0, 0)
