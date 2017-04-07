@@ -72,3 +72,6 @@ def view_place():
 @app.route('/')
 def view_root():
 	return render_template('root.html')
+
+if __name__ == '__main__':
+	app.run('')

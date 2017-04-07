@@ -3,6 +3,7 @@
 		<title>COSI Place</title>
 		<meta charset="utf8"/>
 
+		<script type="text/javascript" src="/static/sjcl.js"></script>
 		<script type="text/javascript">
 /* Configuration section */
 
@@ -54,9 +55,20 @@ var ZOOM_SCALE = 32;  // Pixels / texel when zoomed in
 var DRAG_DIST = 5;
 var RELEASE_AFTER_CLICK = false;
 
+var HASH_NAME = "SHA-256";
+var req_x, req_y, req_color;
+
+var WS_PORT = 8081;
 var HOST = location.protocol + "//" + location.hostname;
-var WS = "ws://" + location.hostname + ":8081/ws";
-var ws;
+if(location.port != "")
+	HOST += ":" + location.port;
+var WS = "ws://" + location.hostname + ":" + WS_PORT + "/ws";
+var WORKERS = 1;
+var WORKER_SCRIPT = "/static/hash.js";
+if(navigator.hardwareConcurrency && navigator.hardwareConcurrency - 1 > WORKERS) {
+	WORKERS = navigator.hardwareConcurrency - 1;
+}
+var ws, workers = [];
 
 async function preConfig() {
 	return await Promise.all([
@@ -84,12 +96,63 @@ function postConfig() {
 		if(obj.ev == "place") {
 			putColor(obj.x, obj.y, obj.color);
 		}
+		if(obj.ev == "nonce") {
+			if(obj.hash != HASH_NAME) {
+				alert("Server hash function (" + obj.hash + ") does not match client hash function (" + HASH_NAME + "); consider updating?");
+				return;
+			}
+			stat_hardness.textContent = obj.hardness;
+			stat_length.textContent = obj.len;
+			for(var i = 0; i < workers.length; i++) {
+				workers[i].terminate();
+			}
+			workers = [];
+			for(var i = 0; i < WORKERS; i++) {
+				var worker = new Worker(WORKER_SCRIPT);
+				worker.postMessage([
+					sjcl.codec.base64.toBits(obj.nonce),
+					obj.hardness,
+					obj.len
+				]);
+				worker.hashes = 0;
+				worker.onmessage = _hashWorkerMessage;
+				workers.push(worker);
+			}
+		}
 	}
 
 	palette_select.value = "default";
 	var ev = new Event("change");
 	palette_select.dispatchEvent(ev);
-	palette_select.disabled = true;
+	// palette_select.disabled = true;
+}
+
+function _hashWorkerMessage(ev) {
+	if(ev.data.done) {
+		ws.send(JSON.stringify({
+			act: "place",
+			resp: sjcl.codec.base64.fromBits(ev.data.value),
+			x: req_x,
+			y: req_y,
+			color: req_color
+		}));
+		unlockPalette();
+		stat_overlay.style.backgroundColor = "#0a0";
+		stat_overlay.style.border = "1px solid #070";
+		hideStat();
+		for(var i = 0; i < workers.length; i++) {
+			workers[i].terminate();
+		}
+		workers = [];
+	} else {
+		//console.log("Progress:", ev.data.value);
+		this.hashes = ev.data.value;
+		var sum = 0;
+		for(var i = 0; i < workers.length; i++) {
+			sum += workers[i].hashes;
+		}
+		stat_hashes.textContent = (sum / 1000000) + "M";
+	}
 }
 
 function updateCanvas() {
@@ -132,26 +195,38 @@ function sendColorUpdate(tx, ty, color_idx) {
 		.then(resp => { if(resp.status != 200) { resp.text().then(text => { throw new Error(resp.status + ":\n" + text) }); }})
 		.catch(alert);
 	*/
+	req_x = tx;
+	req_y = ty;
+	req_color = color_idx;
 	ws.send(JSON.stringify({
-		act: "place",
-		x: tx,
-		y: ty,
-		color: color_idx
+		act: "nonce",
 	}));
-	putColor(tx, ty, color_idx);  // Force local update
+	stat_overlay.style.backgroundColor = "#dd0";
+	stat_overlay.style.border = "1px solid #770";
+	showStat();
+	lockPalette();
+	putColor(tx, ty, color_idx, true);  // Force local update
 }
 
 // To be called whenever a pixel must be placed
-function putColor(tx, ty, color_idx) {
+function putColor(tx, ty, color_idx, shade) {
+	if(shade) {
+		ctx.fillStyle = "#fff";
+		ctx.fillRect(tx, ty, 1, 1);
+		ctx.globalAlpha = 0.2;
+	}
 	ctx.fillStyle = PALETTE[color_idx];
 	ctx.fillRect(tx, ty, 1, 1);
+	if(shade)
+		ctx.globalAlpha = 1;
 }
 
 /* End configuration */
 
 var SQRT_2 = Math.sqrt(2);
 
-var canvas, controls, ctx, palette_elems, palette_select;
+var canvas, controls, ctx, palette_elems, palette_select, lock_overlay;
+var stat_overlay, stat_hashes, stat_hardness, stat_length, stat_time;
 var init_x, init_y;
 var zoomed = false, dragging = false;
 var cur_color = null;
@@ -161,6 +236,7 @@ var canv_width = WIDTH, canv_height = HEIGHT;
 var canv_top = 0, canv_left = 0;
 var target_top = 0, target_left = 0;
 var drag_top, drag_left;
+var tm, tm_timer;
 
 function lerp(a, b, u) {
 	return (1 - u) * a + u * b;
@@ -374,6 +450,48 @@ function updatePalette() {
 	}
 }
 
+function lockPalette() {
+	lock_overlay.style.display = "block";
+	setTimeout(function() {
+		lock_overlay.style.opacity = 0.8;
+	}, 50);
+}
+
+function unlockPalette() {
+	lock_overlay.style.opacity = 0;
+	lock_overlay.addEventListener("transitionend", _hidePaletteLock);
+}
+
+function _hidePaletteLock() {
+	lock_overlay.style.display = "none";
+	lock_overlay.removeEventListener("transitionend", _hidePaletteLock);
+}
+
+function showStat() {
+	stat_overlay.style.display = "block";
+	setTimeout(function() {
+		stat_overlay.style.opacity = 0.5;
+	}, 50);
+	tm = 0;
+	tm_timer = setInterval(_countTime, 1000);
+}
+
+function _countTime() {
+	tm += 1;
+	stat_time.textContent = tm;
+}
+
+function hideStat() {
+	clearInterval(tm_timer);
+	stat_overlay.style.opacity = 0;
+	stat_overlay.addEventListener("transitionend", _hideStatOverlay);
+}
+
+function _hideStatOverlay() {
+	stat_overlay.style.display = "none";
+	stat_overlay.removeEventListener("transitionend", _hideStatOverlay);
+}
+
 function init() {
 	preConfig();
 
@@ -419,6 +537,16 @@ function init() {
 		updateCanvas();
 	});
 
+	lock_overlay = document.querySelector("#lock");
+	unlockPalette();
+
+	stat_overlay = document.querySelector("#stat");
+	stat_hashes = document.querySelector("#stat_hashes");
+	stat_hardness = document.querySelector("#stat_hardness");
+	stat_length = document.querySelector("#stat_length");
+	stat_time = document.querySelector("#stat_time");
+	hideStat();
+
 	// Debugging
 	// makeRandomNoise();
 	postConfig();
@@ -440,11 +568,14 @@ body {
 	image-rendering: -moz-crisp-edges;
 }
 
-#controls {
+#ctrl_container {
 	position: fixed;
 	left: 0;
 	bottom: 0;
 	width: 100%;
+}
+
+#controls {
 	display: flex;
 	justify-content: center;
 	background-color: #333;
@@ -467,13 +598,50 @@ body {
 	position: fixed;
 	display: block;
 }
+
+#lock {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	top: 0;
+	left: 0;
+	background-color: #000;
+	background-image: url(/static/ellipsis.gif);
+	background-repeat: no-repeat;
+	background-position: center center;
+	background-size: auto 1em;
+	transition: opacity 0.75s;
+}
+
+#stat {
+	position: fixed;
+	top: 0;
+	right: 0;
+	transition: opacity 0.75s;
+	font-family: sans-serif;
+	font-weight: bold;
+	font-size: 75%;
+}
+
+#stat p {
+	padding: 0 2ex;
+}
 		</style>
 	</head>
 
 	<body>
+		<div id="stat">
+			<p>Time: <span id="stat_time">???</span> secs</p>
+			<p>Hashes: <span id="stat_hashes">???</span> digests</p>
+			<p>Hardness: <span id="stat_hardness">???</span> bits</p>
+			<p>Length: <span id="stat_length">???</span> bits</p>
+		</div>
 		<canvas id="place"></canvas>
-		<div id="controls">
-			<select id="palette"></select>
+		<div id="ctrl_container">
+			<div id="lock"></div>
+			<div id="controls">
+				<select id="palette"></select>
+			</div>
 		</div>
 	</body>
 </html>

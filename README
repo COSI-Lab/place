@@ -3,7 +3,9 @@ A small r/place clone using Flask and WebSockets.
 You'll need a Python2 installation with the following modules:
 
 - flask
-- geventwebsocket
+- gevent-websocket
+
+...and their dependencies.
 
 Afterward, make sure the `bitmap` file exists and is correctly referred to
 under the `BITMAP_FILE` line in `place.py`. You can use `make_bitmap.py` to

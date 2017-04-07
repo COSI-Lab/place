@@ -1,3 +1,13 @@
+The file `static/sjcl.js` is dually licensed under the GPL2 and a 2-clause BSD
+present in COPYING.sjcl.  All other program source files are released under the
+Affero GPL3, which follows.
+
+The files `static/ellipsis.xcf` and `static/ellipsis.gif` are relaeased under
+the Creative Commons International License 4.0 with Attribution. This license
+may be found at https://creativecommons.org/licenses/by/4.0/legalcode .
+
+----
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
