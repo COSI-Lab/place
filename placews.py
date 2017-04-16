@@ -2,7 +2,7 @@ from gevent import monkey
 monkey.patch_all()
 
 import gevent
-from geventwebsocket import WebSocketServer, WebSocketApplication, Resource
+from geventwebsocket import WebSocketServer, WebSocketApplication, Resource, WebSocketError
 
 import socket, json, traceback
 import bitmap
@@ -16,11 +16,17 @@ def broadcast_thread():
 	while True:
 		msg, addr = so.recvfrom(4096)
 		print('From master:', msg)
+		torem = set()
 		for sock in sockets:
 			try:
 				sock.send(msg)
+			except WebSocketError:
+				torem.add(socK)
 			except Exception:
 				traceback.print_exc()
+
+		for sock in torem:
+			sockets.discard(sock)
 
 class DistApplication(WebSocketApplication):
 	def on_open(self):
@@ -28,22 +34,30 @@ class DistApplication(WebSocketApplication):
 		sockets.add(self.ws)
 
 	def on_message(self, msg):
+		print 'From', self.ws, ':', repr(msg)
+		if msg is None:
+			return
 		try:
 			msg = json.loads(msg)
 			if msg['act'] == 'place':
 				bitmap.place_pixel(msg['x'], msg['y'], msg['color'])
-				so.sendto(json.dumps({
-					'ev': 'place', 'x': msg['x'], 'y': msg['y'], 'color': msg['color']
-				}), ('localhost', 42960))
+				bitmap.send_pixel_update(so, msg['x'], msg['y'], msg['color'])
 			else:
 				raise ValueError('unknown action')
 		except Exception:
-			self.ws.send(json.dumps({
-				'error': traceback.format_exc(),
-			}))
+			err = traceback.format_exc()
+			try:
+				self.ws.send(json.dumps({
+					'error': err,
+				}))
+			except Exception:
+				print('Double exception while servicing original exception:')
+				print(err)
+				print('While handling this exception, another exception occured:')
+				traceback.print_exc()
 
-	def on_close(self):
-		print 'Disconnection from', self.ws
+	def on_close(self, reason):
+		print 'Disconnection from', self.ws, ':', reason
 		sockets.discard(self.ws)
 
 gevent.spawn(broadcast_thread)

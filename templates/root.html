@@ -68,15 +68,21 @@ async function preConfig() {
 function postConfig() {
 	updateCanvas();
 
+	palette_lockmsg.textContent = "Connecting...";
+
 	ws = new WebSocket(WS);
 	ws.onopen = function(ev) {
 		console.log('Connection established');
+		unlockPalette();
 	}
 	ws.onerror = function(ev) {
 		console.log('WS Error:', ev);
 	}
 	ws.onclose = function(ev) {
 		console.log('WS Close:', ev);
+		alert('Connection closed! Your changes are unlikely to be saved!');
+		lockPalette();
+		palette_lockmsg.textContent = "Disconnected!";
 	}
 	ws.onmessage = function(ev) {
 		var obj = JSON.parse(ev.data);
@@ -151,7 +157,7 @@ function putColor(tx, ty, color_idx) {
 
 var SQRT_2 = Math.sqrt(2);
 
-var canvas, controls, ctx, palette_elems, palette_select;
+var canvas, controls, ctx, palette_elems, palette_select, palette_lock, palette_lockmsg;
 var init_x, init_y;
 var zoomed = false, dragging = false;
 var cur_color = null;
@@ -367,6 +373,23 @@ function makeRandomNoise() {
 	}
 }
 
+function lockPalette() {
+	palette_lock.style.display = "flex";
+	setTimeout(function() {
+		palette_lock.style.opacity = 0.8;
+	}, 50);
+}
+
+function unlockPalette() {
+	palette_lock.style.opacity = 0;
+	palette_lock.addEventListener("transitionend", _hidePaletteLock);
+}
+
+function _hidePaletteLock() {
+	palette_lock.style.display = "none";
+	palette_lock.removeEventListener("transitionend", _hidePaletteLock);
+}
+
 function updatePalette() {
 	for(var i = 0; i < palette_elems.length; i++) {
 		var elem = palette_elems[i];
@@ -419,6 +442,9 @@ function init() {
 		updateCanvas();
 	});
 
+	palette_lock = document.querySelector("#lock");
+	palette_lockmsg = document.querySelector("#lockmsg");
+
 	// Debugging
 	// makeRandomNoise();
 	postConfig();
@@ -440,14 +466,17 @@ body {
 	image-rendering: -moz-crisp-edges;
 }
 
-#controls {
+#ctrl_pane {
 	position: fixed;
 	left: 0;
 	bottom: 0;
 	width: 100%;
+	background-color: #333;
+}
+
+#controls {
 	display: flex;
 	justify-content: center;
-	background-color: #333;
 
 }
 
@@ -467,13 +496,37 @@ body {
 	position: fixed;
 	display: block;
 }
+
+#lock {
+	position: absolute;
+	display: flex;
+	width: 100%;
+	height: 100%;
+	left: 0;
+	top: 0;
+	background-color: #000;
+	background-image: url(/static/ellipsis.gif);
+	background-repeat: no-repeat;
+	background-position: center center;
+	background-size: auto 1em;
+	transition: opacity 0.75s;
+}
+
+#lock div {
+	margin: 0 auto;
+	font-weight: bold;
+	color: #ddd;
+}
 		</style>
 	</head>
 
 	<body>
 		<canvas id="place"></canvas>
-		<div id="controls">
-			<select id="palette"></select>
+		<div id="ctrl_pane">
+			<div id="lock" style="opacity: 0.8;"><div id="lockmsg">Did you enable JavaScript?</div></div>
+			<div id="controls">
+				<select id="palette"></select>
+			</div>
 		</div>
 	</body>
 </html>

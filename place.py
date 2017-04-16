@@ -59,7 +59,7 @@ def view_place():
 				response.status_code = 500
 			else:
 				response = make_response(render_template('api_place.txt', **req))
-				so.send(json.dumps({'ev': 'place', 'x': req['x'], 'y': req['y'], 'color': req['color']}))
+				bitmap.send_pixel_update(so, req['x'], req['y'], req['color'])
 			response.headers['Content-type'] = 'text/plain'
 			return response
 		else:
